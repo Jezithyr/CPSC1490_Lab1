@@ -1,113 +1,137 @@
-const byte pinSetup = 11111100;
-byte pinstates;
-byte delaySettings[4][3] = {{1,1,1},{2,1,2},{5,2,5},{30,10,30}};
-byte currentConfig = 00000000;
+/*
+ * pin setup:
+ * 30, 31: North RED, West Red
+ * 32,33: North Green, West Green
+ * 34,46: North Yellow, West Yellow
+ * 40,31: switch inputs
+ * 
+*/
+
+/*port setup
+ * DRRC = 30-37
+ *Pins      30      31         32           33          34        35          36      37
+ *State     1       1           1           1           1           1          0      0
+ *Light (RedNorth)(RedWest)(GreenNorth)(GreenWest)(YellowNorth)(YellowWest)(Unused)(Unused)
+ */
+
+ 
+const byte pinSetup = B11111100; 
+const byte sensorPorts[] = {40,41};
+
+/*
+ *Delay state setup: 
+ *       
+ * Switch State:      [off][off] [on][off]  [off][on]   [on][on]
+ *                
+ * Delay length(sec)  {{1,1,1},   {2,1,2},   {5,2,5}, {30,10,30}}
+ *  
+ * Maximum of 4 options corresponding with dipswitch
+ * 
+ *Delay value: {  1,      1,      1   }
+ *                ^       ^       ^
+ *Light color:   Green  Yellow   Red
+ *
+ */
+//delay settings all values in seconds
+const int delaySettings[4][3] = {{1,1,1},{2,1,2},{5,2,5},{30,10,30}};
+
+/*
+ * ======================== Do not edit below here ============================
+ */
+
+//look up table and formating arry for delay settings
+byte settingIndex = 0;
+const byte bitValueArray[2][2] = {{0,1},{2,3}};
+
+//timer variables
+long startTime;
+long curtime;
+
+//switch states
+byte switch1State = 0;
+byte switch2State = 0;
+
+//loopback for solid red state
+bool loopback = false;
+
+//state tracking
+byte currentState = 0;
 
 
 void pinwrite(byte pinstates){
-  //PORTC=pinstates;
-
-  currentConfig=11111111;
+  PORTC=pinstates;
   
- /* switch (pinstates){
-    case B11000000: {
-      Serial.print("Solid Red\n");
-    }
-    case B01100000: {
-      Serial.print("North Green/West Red\n");
-    }
-    case B10000100: {
-      Serial.print("North Yellow/West Red\n");
-    }
-    case B10010000: {
-      Serial.print("West Green/North Red\n");
-    }
-    case B10001000: {
-      Serial.print("West Yellow/North Red\n");
-    }
-    }
-*/
-  
-}
-byte pinread(){
-  return PORTC;
 }
 
 
 void setup() {
-  Serial.begin(9600);
-  //DDRC=pinSetup;
-  pinwrite(11111100);
-  pinwrite(11111100);
-  
+  //ddr output in setup
+  DDRC=pinSetup;
+
+  //setup sensor pins
+  pinMode(sensorPorts[0], INPUT);
+  pinMode(sensorPorts[1], INPUT);
+  //start timer variable
+  startTime = millis();
 }
 
 void loop() {
-int startTime = millis();
-int curTime = 0;
-bool cycle = true;
-byte currentState = 0;
-bool loopback = false;
-
-while (cycle){
-  pinstates = pinread();
-  curTime = millis();
-  switch (currentState)
-  {
-    case 0: {//solid red
-        pinwrite(11000000);
-        if ((startTime+20000) <= curTime) {
-          if (!loopback) { 
-            currentState = 1;
-            Serial.print("North Green/West Red\n");
-          } else{
-            currentState = 3;
-            Serial.print("West Green/North Red\n");
-            loopback = false;
-          }
-        }
-      }
-    case 1: {// North green
-        pinwrite(01100000);
-        if ((startTime+20000) <= curTime) {
-          Serial.print("North Yellow/West Red\n");
-          currentState = 2;
-        }
-    }
-    case 2: { // North yellow
-        pinwrite(10000100);
-         if ((startTime+20000) <= curTime) {
-          currentState = 0;
-          Serial.print("Solid Red\n");
-          loopback = true;
-        }
-      }
-    case 3: { //West green
-         pinwrite(10010000);
-    if ((startTime+20000) <= curTime) {
-          Serial.print("West Yellow/North Red\n");
-          currentState = 4;
-         
-        }
-      }
-    case 4: { //West Yellow
-        pinwrite(10001000);
-    if ((startTime+20000) <= curTime) {
-          currentState = 0;
-          Serial.print("Solid Red\n");
-        }
-      }
+  if (digitalRead(41)==HIGH) {
+    switch1State = 1;
+  }else {
+    switch1State = 0;
   }
-  
-  
-  
-  
-}
-
-
-
-
-
-
-
+  if (digitalRead(40)==HIGH){
+    switch2State = 1;
+  }else{
+    switch2State = 0;
+  }
+  settingIndex = bitValueArray[switch1State][switch2State];
+  curtime = millis();
+  switch (currentState){
+    case 0: //solid red
+        pinwrite(B11000000);
+        if ((curtime-(delaySettings[settingIndex][2] * 1000)) >= startTime) {
+          if (loopback) { 
+            currentState = 3;
+            loopback = false;
+          } else{
+            currentState = 1;
+            loopback = true;
+          }
+          startTime = millis();//timer reset
+        }
+    break;
+    case 1: // North green
+        pinwrite(B01100000);
+        if ((curtime-(delaySettings[settingIndex][0] * 1000)) >= startTime) {
+          currentState = 2;
+          startTime = millis();//timer reset
+        }
+    break;
+    
+    case 2:  // North yellow
+        pinwrite(B1001000); //write lights
+        if ((curtime-(delaySettings[settingIndex][1] * 1000)) >= startTime) {
+          currentState = 0;
+          startTime = millis();//timer reset
+        }
+    break;
+    case 3:  //West green
+         pinwrite(B10010000);
+         if ((curtime-(delaySettings[settingIndex][0] * 1000)) >= startTime) {
+         currentState = 4;
+         startTime = millis();//timer reset
+        }
+    break;
+      
+    case 4:  //West Yellow
+        pinwrite(B10000100);
+        if ((curtime-(delaySettings[settingIndex][1] * 1000)) >= startTime) {
+          currentState = 0;
+          startTime = millis(); //timer reset
+        }
+         
+    break;  
+  }
 }
